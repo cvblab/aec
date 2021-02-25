@@ -21,8 +21,9 @@ np.random.seed(0)
 
 
 dir_dataset = '../datasets/synthetic/'
+#dir_dataset = '/scratch/eco/synthetic/'
 dir_results = '../results/mel/'
-architecture = 'unet'
+architecture = 'transformer'
 method = 'aec'
 n_epochs = 30
 lr = 5*1e-4
@@ -45,8 +46,13 @@ test_dataset = Dataset(dir_dataset, partition='test', debugging=debugging)
 test_loader = DataGenerator(test_dataset, batch_size=batch_size, shuffle=True)
 
 # Get model
-model, criterion, optimizer = u_net_2d(input_size=(160, 32), optimizer=opt, learning_rate=lr, mode=2,
-                                       number_filters_0=16, resize_factor_0=[1, 1])
+if architecture == 'unet': 
+    model, criterion, optimizer = u_net_2d(input_size=(160, 32), optimizer=opt, learning_rate=lr, mode=2,
+                                           number_filters_0=16, resize_factor_0=[1, 1])
+elif architecture == 'transformer':
+    model, criterion, optimizer = speechenhancement_transformer_2d(input_size=(160, 32), optimizer=opt,
+                                                                   learning_rate=lr, mode=2, number_layers=12, 
+                                                                   number_heads=8, dropout=0.1)
 
 # Initialize trainer object
 trainer = CNNTrainer(n_epochs, criterion, optimizer, train_on_gpu, device, dir_results,

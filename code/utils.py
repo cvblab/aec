@@ -500,6 +500,87 @@ def u_net_2d(input_size=(162, 33), optimizer='nadam', learning_rate=1e-5, mode=0
 
     return model, criterion, optimizer
 
+def speechenhancement_transformer_2d(input_size=(160, 32), optimizer='nadam', learning_rate=1e-5, mode=0, number_layers=6, number_heads=8, dropout=0.0):
+
+    # Dimensions 
+    dim_embeding = input_size[0] * input_size[1]
+    dim_key = int(dim_embeding // number_heads) # Default dimension depending on input
+    dim_feed_forward = dim_embeding * 4 # Default dimension depending on input
+    dim_feed_forward_2 = input_size[1]
+
+
+    # Blocks definition
+    def multihead_selfattention(x1, x2):
+        # Input -> MultiHeadAttention -> Dropout -> Add -> LayerNormalization -> Output
+        #   V                                        A
+        #    ----------------------------------------
+        x = tf.keras.layers.MultiHeadAttention(num_heads=number_heads, key_dim=dim_key, dropout=dropout)(x1, x2)
+        x = tf.keras.layers.Dropout(rate=dropout)(x)
+        x = tf.keras.layers.Add()([x1, x])
+        x = tf.keras.layers.LayerNormalization(axis=-1)(x)
+        return x
+
+    def feed_forward(input_layer):
+        # Input -> FullyConnected -> Dropout -> FullyConnected -> Dropout -> Add -> LayerNormalization -> Output
+        #   V                                                                 A
+        #    -----------------------------------------------------------------
+        x = tf.keras.layers.Dense(units=dim_feed_forward, activation="relu")(input_layer)
+        x = tf.keras.layers.Dropout(rate=dropout)(x)
+        x = tf.keras.layers.Dense(units=dim_feed_forward_2)(x)
+        x = tf.keras.layers.Dropout(rate=dropout)(x)
+        x = tf.keras.layers.Add()([input_layer, x])
+        x = tf.keras.layers.LayerNormalization(axis=-1)(x)
+        return x
+
+    def encoder_layer(x1, x2):
+        # Input -> Attention -> Attention -> Feed_Forward -> Output
+        #              V            A
+        #               ----- ------ 
+        #                    X
+        #               ----- ------ 
+        #              A            V
+        # Input -> Attention -> Attention -> Feed_Forward -> Output
+
+        x1 = multihead_selfattention(x1, x1)
+        x2 = multihead_selfattention(x2, x2)
+        x3 = multihead_selfattention(x1, x2)
+        x4 = multihead_selfattention(x2, x1)
+        x3 = feed_forward(x3)
+        x4 = feed_forward(x4)
+        return x3, x4
+
+
+    # Architecture definition
+
+    inputs = tf.keras.Input((input_size[0], input_size[1], 2))
+
+    # ----- ENCODING -----
+
+    x1, x2 = tf.unstack(inputs, num=2, axis=-1) # axis=2 o -1
+    for _ in range(number_layers):
+        x1, x2 = encoder_layer(x1, x2)
+
+    # ----- OUTPUT -------
+
+    #out = tf.expand_dims(x1, axis=-1)
+    out = x1
+    model = tf.keras.Model(inputs=inputs, outputs=out)
+
+    if 'nadam' in optimizer:
+        optimizer = tf.keras.optimizers.Nadam(lr=learning_rate)
+    elif 'sgd' in optimizer:
+        optimizer = tf.keras.optimizers.SGD(lr=learning_rate)
+    elif 'adam' in optimizer:
+        optimizer = tf.keras.optimizers.Adam(lr=learning_rate)
+
+    loss = rmse_coef
+    metric = rmse_coef
+
+
+    criterion = loss
+    #model.compile(optimizer=optimizer, loss=loss, metrics=[metric])  # WORKS
+
+    return model, criterion, optimizer
 
 # Blocks definition
 def residual_block_1(input_layer, n_filters):
